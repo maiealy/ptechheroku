@@ -12,7 +12,11 @@
   },
   "dependencies": {
     "ejs": "^3.1.9",
-    "express": "^4.15.2"
+    "express": "^4.15.2",
+    "pg": "8.12.0",
+    "pg-hstore": "2.3.4",
+    "path":"0.12.7",
+    "fs":"0.0.1-security"
   },
   "devDependencies": {
     "tape": "^5.7.4"
