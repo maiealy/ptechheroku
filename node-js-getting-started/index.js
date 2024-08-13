@@ -50,7 +50,7 @@ app.get('/payments/:accountID', async (req, res) => {
   try {
     if(req.params.accountID){
         const client = await pool.connect();
-        const result = await client.query('SELECT * FROM public."payment" WHERE "paymentID" = ' + req.params.accountID );
+        const result = await client.query('SELECT * FROM public."payment" WHERE "senderAccountNumber" = ' + req.params.accountID );
         const data = result.rows;
         client.release();
         res.send(data);
