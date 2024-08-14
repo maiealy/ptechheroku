@@ -30,7 +30,7 @@ const client = new pg.Pool({
   }
 });
 
-client.connect();
+// client.connect();
 
 
 // 1- Get Users
@@ -39,7 +39,6 @@ app.get('/users', async (req, res) => {
     // const client = await pool.connect();
     const result = await client.query('SELECT * FROM public."user"');
     const data = result.rows;
-    client.release();
     res.send(data);
   } catch (err) {
     console.error(err);
