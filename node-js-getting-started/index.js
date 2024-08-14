@@ -23,20 +23,23 @@ app.get('/details', (req, res) => {
 let dataBaseHostURL = 'postgres://u5o4nov2ff99iq:pe4d776468dedc2307b547bde1bff258958fe1af9036963f2f6b8ebbd4a121767@c724r43q8jp5nk.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/d7si4nnk0mjhno'
 
 // Connect to Heroku Postgres using the DATABASE_URL environment variable
-const pool = new pg.Pool({
+const client = new pg.Pool({
   connectionString: dataBaseHostURL,
   ssl: {
     rejectUnauthorized: false // Set to true in production
   }
 });
 
+
+        
+
 // 1- Get Users
 app.get('/users', async (req, res) => {
   try {
-    const client = await pool.connect();
+    // const client = await pool.connect();
     const result = await client.query('SELECT * FROM public."user"');
     const data = result.rows;
-    client.release();
+    // client.release();
     res.send(data);
   } catch (err) {
     console.error(err);
@@ -49,10 +52,9 @@ app.get('/users', async (req, res) => {
 app.get('/payments/:accountID', async (req, res) => {
   try {
     if(req.params.accountID){
-        const client = await pool.connect();
         const result = await client.query('SELECT * FROM public."payment" WHERE "senderAccountNumber" = ' + req.params.accountID );
         const data = result.rows;
-        client.release();
+        // client.release();
         res.send(data);
     } else{
       res.send({success: false});
@@ -65,48 +67,130 @@ app.get('/payments/:accountID', async (req, res) => {
 });
 
 // 3- Transfer payment
-
   async function getMaxPaymentID() {
     try {
-      await client.connect();
-      const result = await client.query('SELECT MAX(paymentID) FROM public."payment" ');
+      // const client = await client.end();
+      // client = await pool.connect();
+      const result = await client.query('SELECT MAX(payment."paymentID") FROM public."payment" ');
       const maxId = result.rows[0].max;
-      return maxId? maxId + 1 : 1000000;
+      // client.release();
+      return maxId? +maxId + 1 : 1000000;
 
     } catch (err) {
       console.error(err);
       throw err;
     } finally {
-      await client.end();
+      // await client.end();
     }
+  }
+
+  async function doesUserExist(userAccountID) {
+    try {
+
+      // remove password from query
+      const query = `
+        SELECT "userAccountID"
+        FROM public."user" 
+        WHERE "userAccountID" = $1;
+      `;
+      const values = [userAccountID];
+      const result = await client.query(query, values);
+
+      // client.release();
+
+      return result.rows.length>0?true : false;
+    } catch (err) {
+      console.error(err);
+      throw err;
+    } finally {
+      // await client.end();
+    }
+  }
+
+  async function doesSenderHaveEnoughBalance(senderAccountNumber, paymentAmount) {
+
+    const result = await client.query('SELECT "balance" FROM public."user"  WHERE "userAccountID" = ' + senderAccountNumber);
+    var balance = result.rows[0];
+
+    var hasBalance = false
+    
+    if(balance)
+    {
+      var balanceamount = Number(balance.balance);
+      if(balanceamount >=  paymentAmount) hasBalance = true 
+    } 
+
+    return hasBalance;
+  }
+
+  async function updateReceiverAndSendertBalance(receiverAccountNumber, senderAccountNumber, paymentAmount) {
+    const receiverquery = `
+      UPDATE public."user"
+      SET "balance" = "balance" + $1
+      WHERE "userAccountID" = $2;
+    `;
+    const receivervalues = [paymentAmount, receiverAccountNumber];
+    await client.query(receiverquery, receivervalues);
+
+    const senderquery = `
+      UPDATE public."user"
+      SET "balance" = "balance" - $1
+      WHERE "userAccountID" = $2;
+    `;
+    const sendervalues = [paymentAmount, senderAccountNumber];
+    await client.query(senderquery, sendervalues);
+
+    return true;
   }
 
   async function transferPayment(receiverAccountNumber, senderAccountNumber, paymentDate, paymentAmount, paymentType) {
     try {
-      await client.connect();
 
       //1- check receiverAccountNumber and senderAccountNumber and sender balance
+      const userExists = await doesUserExist(receiverAccountNumber)
+      if(userExists == true)
+      {
+          const senderHaveEnoughBalance = await doesSenderHaveEnoughBalance(senderAccountNumber,paymentAmount )
+          if(senderHaveEnoughBalance == true)
+          {
+                //2- update receiver and sender balance
+                await updateReceiverAndSendertBalance(receiverAccountNumber, senderAccountNumber, paymentAmount)
 
-      //2- update receiver and sender balance
+                // 3- add transaction to payment table
+                try {
+                  const query = `
+                      INSERT INTO public."payment" ("paymentID", "receiverAccountNumber", "senderAccountNumber", 
+                              "paymentDate", "paymentAmount", "paymentType")
+                      VALUES ($1, $2, $3, $4, $5, $6)
+                      RETURNING *;
+                      `;
 
-      // 3- add transaction to payment table
-      const query = `
-        INSERT INTO public."payment" (paymentID, receiverAccountNumber, senderAccountNumber, paymentDate, paymentAmount, paymentType)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *;
-      `;
+                      const paymentID = await getMaxPaymentID()
+                      const values = [paymentID, receiverAccountNumber, senderAccountNumber, paymentDate, paymentAmount, paymentType];
+                      const result = await client.query(query, values);
 
-      const paymentID = await getMaxPaymentID()
-      const values = [paymentID, receiverAccountNumber, senderAccountNumber, paymentDate, paymentAmount, paymentType];
-      const result = await client.query(query, values);
-      return result.rows[0]; // Returns the inserted row
-      
+                      return result.rows.length>0? result.rows[0] : null;
+
+                } catch (err) {
+                  console.error(err);
+                  throw err;
+                } finally {
+                  // await client.end();
+                }
+          }
+          else{
+            return null
+          }
+      }else{
+        return null
+      }
     } catch (err) {
       console.error(err);
       throw err;
     } finally {
-      await client.end();
+      // await client.end();
     }
+      
   }
 
   app.post('/payments/transfer', async (req, res) => {
@@ -117,8 +201,8 @@ app.get('/payments/:accountID', async (req, res) => {
           const bodyData = req.body;
           const result = await transferPayment(bodyData.receiverAccountNumber, bodyData.senderAccountNumber, 
             bodyData.paymentDate, bodyData.paymentAmount, bodyData.paymentType );
-          const data = result.rows;
-          res.send(data);
+          const data = result;
+          data? res.send({success: true, data: data}) : res.send({success: false, "message": "Transaction failed. Make sure you have enough balance"})
       } else{
         res.send({success: false});
       }
@@ -132,20 +216,24 @@ app.get('/payments/:accountID', async (req, res) => {
   // 4- authenticate
   async function queryUsersByColumnValues(column1, value1, column2, value2) {
     try {
-      await client.connect();
+
+      // remove password from query
       const query = `
-        SELECT * 
+        SELECT "userAccountID", "username", "firstName", "lastName", "email", "language"
         FROM public."user" 
         WHERE ${column1} = $1 AND ${column2} = $2;
       `;
       const values = [value1, value2];
       const result = await client.query(query, values);
-      return result.rows;
+
+      // client.release();
+
+      return result.rows.length>0? result.rows[0] : null;
     } catch (err) {
       console.error(err);
       throw err;
     } finally {
-      await client.end();
+      // await client.end();
     }
   }
   
@@ -154,8 +242,10 @@ app.get('/payments/:accountID', async (req, res) => {
       if(req.body){
           const bodyData = req.body;
           const result = await queryUsersByColumnValues('username', bodyData.username , 'password', bodyData.password );
-          const data = result.rows;
-          res.send(data);
+          const data = result;
+
+          data? res.send({success: true, data: data}) : res.send({success: false})
+
       } else{
         res.send({success: false});
       }
@@ -164,43 +254,57 @@ app.get('/payments/:accountID', async (req, res) => {
       res.status(500).send('Error retrieving data');
     }
 
-});
+  });
 
   // 5- register users
-
   async function getMaxAccountID() {
     try {
-    
-      const result = await client.query('SELECT MAX(userAccountID) FROM public."user" ');
+      // const client = await pool.connect();
+      const result = await client.query('SELECT MAX("userAccountID") FROM public."user" ');
       const maxId = result.rows[0].max;
-      return maxId? maxId + 1 : 100000000;
+
+      // client.release();
+
+      return maxId? +maxId + 1 : 100000000;
 
     } catch (err) {
       console.error(err);
       throw err;
     } finally {
-      await client.end();
+      // await client.end();
     }
   }
 
   async function registerUser(username, password, firstname, lastname, email, language) {
     try {
-      await client.connect();
-      const query = `
-        INSERT INTO public."user" (accountID, username, password, firstname, lastname, email, language)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *;
-      `;
+      // make sure that username and password do not exist in the tables
+      const userexists = await queryUsersByColumnValues('username', username , 'password', password );
 
-      const accountID = await getMaxAccountID()
-      const values = [accountID, username, password, firstname, lastname, email, language];
-      const result = await client.query(query, values);
-      return result.rows[0]; // Returns the inserted row
+      if(userexists)
+      {
+          return null;
+      }
+      else {
+        // insert
+            const query = `
+            INSERT INTO public."user" ("userAccountID", "username", "password", "firstName", "lastName", "email", "language", "balance")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *;
+          `;
+
+          const accountID = await getMaxAccountID()
+          const values = [accountID, username, password, firstname, lastname, email, language, 0];
+          const result = await client.query(query, values);
+
+          //return the inserted row
+          return result.rows.length>0? result.rows[0] : null;
+      }
+
     } catch (err) {
       console.error(err);
       throw err;
     } finally {
-      await client.end();
+      // await client.end();
     }
   }
 
@@ -210,10 +314,10 @@ app.get('/payments/:accountID', async (req, res) => {
           req.body.firstname && req.body.lastname &&  req.body.email &&  req.body.language){
 
           const bodyData = req.body;
-          const result = await registerUser(bodyData.username, bodyData.password, 
-            bodyData.firstname && bodyData.lastname &&  bodyData.email &&  bodyData.language);
-          const data = result.rows;
-          res.send(data);
+          const result = await registerUser(bodyData.username, bodyData.password,  bodyData.firstname && bodyData.lastname &&  bodyData.email &&  bodyData.language);
+          const data = result;
+          if(data) delete data.password;  //remove password
+          data? res.send({success: true, data: data}) : res.send({success: false, message: "An error occured or user already exists"})
       } else{
         res.send({success: false});
       }
@@ -224,5 +328,42 @@ app.get('/payments/:accountID', async (req, res) => {
 
 });
 
+   // 6- Delete user
+   app.delete('/user/:accountID', async (req, res) => {
+
+    try {
+
+      if(req.params.accountID){
+        const result = await client.query('DELETE FROM  public."user" WHERE "userAccountID" = ' + req.params.accountID);
+        const data = result.row[0];
+        result.rows.length>0?  res.send({success: true, message: "User deleted "}) : res.send({success: false, message: "Failed delting user "});
+      } else{
+        res.send({success: false, message: "Failed delting user "})
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).send('Error deleting data');
+    }
+
+  });
+
+  // 7- Delete payment
+  app.delete('/payment/:accountID', async (req, res) => {
+
+    try {
+
+      if(req.params.accountID){
+        const result = await client.query('DELETE FROM  public."payment" WHERE "paymentID" = ' + req.params.accountID);
+        const data = result.row[0];
+        result.rows.length>0?  res.send({success: true, message: "Payment deleted "}) : res.send({success: false, message: "Failed delting payment "});
+      } else{
+        res.send({success: false, message: "Failed delting payment "})
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).send('Error deleting data');
+    }
+
+  });
 //Start server
   app.listen(PORT, () => console.log(`Listening on ${ PORT }`))
