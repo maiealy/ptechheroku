@@ -274,10 +274,10 @@ app.get('/payments/:accountID', async (req, res) => {
     }
   }
 
-  async function registerUser(username, password, firstname, lastname, email, language) {
+  async function registerUser(bodyData) {
     try {
       // make sure that username and password do not exist in the tables
-      const userexists = await queryUsersByColumnValues('username', username , 'password', password );
+      const userexists = await queryUsersByColumnValues('username', bodyData.username , 'password', bodyData.password );
 
       if(userexists)
       {
@@ -292,7 +292,7 @@ app.get('/payments/:accountID', async (req, res) => {
           `;
 
           const accountID = await getMaxAccountID()
-          const values = [accountID, username, password, firstname, lastname, email, language, 10000];
+          const values = [accountID, bodyData.username,bodyData.password, bodyData.firstname, bodyData.lastname, bodyData.email, bodyData.language, 10000];
           const result = await client.query(query, values);
 
           //return the inserted row
@@ -313,7 +313,7 @@ app.get('/payments/:accountID', async (req, res) => {
           req.body.firstname && req.body.lastname &&  req.body.email &&  req.body.language){
 
           const bodyData = req.body;
-          const result = await registerUser(bodyData.username, bodyData.password,  bodyData.firstname && bodyData.lastname &&  bodyData.email &&  bodyData.language);
+          const result = await registerUser(bodyData);
           const data = result;
           if(data) delete data.password;  //remove password
           data? res.send({success: true, data: data}) : res.send({success: false, message: "An error occured or user already exists"})
