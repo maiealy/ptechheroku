@@ -20,7 +20,7 @@ app.get('/details', (req, res) => {
   res.send({"message":'Hello, World122222!', "name":"Maie"})})
 
 
-let dataBaseHostURL = 'postgres://u5o4nov2ff99iq:pe4d776468dedc2307b547bde1bff258958fe1af9036963f2f6b8ebbd4a121767@c724r43q8jp5nk.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/d7si4nnk0mjhno'
+let dataBaseHostURL = 'postgres://u372dltu9u49hr:p3c6becee3fc7aa02f0ef9f20b4abf5aaf701269177dfe12afc91478c0d661425@cav8p52l9arddb.cluster-czz5s0kz4scl.eu-west-1.rds.amazonaws.com:5432/df8qc1hcgkcgc5'
 
 // Connect to Heroku Postgres using the DATABASE_URL environment variable
 const client = new pg.Pool({
@@ -30,8 +30,8 @@ const client = new pg.Pool({
   }
 });
 
+client.connect();
 
-        
 
 // 1- Get Users
 app.get('/users', async (req, res) => {
@@ -39,7 +39,7 @@ app.get('/users', async (req, res) => {
     // const client = await pool.connect();
     const result = await client.query('SELECT * FROM public."user"');
     const data = result.rows;
-    // client.release();
+    client.release();
     res.send(data);
   } catch (err) {
     console.error(err);
@@ -365,5 +365,25 @@ app.get('/payments/:accountID', async (req, res) => {
     }
 
   });
+
+  // app.get('/stopservice', async (req, res) => {
+  //   try {
+  //     // const client = await pool.connect();
+  //     const result = await client.query( `
+  //     SELECT pg_terminate_backend(pid)
+  //     FROM pg_stat_activity
+  //     WHERE datname = 'd7si4nnk0mjhno'
+  //     AND leader_pid IS NULL;
+
+  //   `);
+    
+  //     res.send(true);
+  //   } catch (err) {
+  //     console.error(err);
+  //     res.status(500).send('Error retrieving data');
+  //   }
+  // });
+
+
 //Start server
   app.listen(PORT, () => console.log(`Listening on ${ PORT }`))
