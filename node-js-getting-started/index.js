@@ -292,7 +292,7 @@ app.get('/payments/:accountID', async (req, res) => {
           `;
 
           const accountID = await getMaxAccountID()
-          const values = [accountID, username, password, firstname, lastname, email, language, 0];
+          const values = [accountID, username, password, firstname, lastname, email, language, 10000];
           const result = await client.query(query, values);
 
           //return the inserted row
